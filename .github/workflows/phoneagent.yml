@@ -18,6 +18,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyinstaller pyautogui pillow
+      - name: Stamp version
+        shell: pwsh
+        run: '"VERSION = ''$($env:GITHUB_SHA.Substring(0,7))''" | Out-File -Encoding ascii version.py'
       - run: pyinstaller --noconfirm --onefile --windowed --name PhoneAgent --hidden-import pyautogui gui.py
       - name: Package (exe + adb)
         shell: pwsh
@@ -35,4 +38,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag --repo ${{ github.repository }} 2>$null
-          gh release create latest PhoneAgent-Windows.zip --repo ${{ github.repository }} --title "PhoneAgent (Windows, без Python)" --notes "Скачайте PhoneAgent-Windows.zip, распакуйте и запустите PhoneAgent.exe. Python не нужен."
+          gh release create latest PhoneAgent-Windows.zip dist\PhoneAgent.exe --repo ${{ github.repository }} --title "PhoneAgent (Windows, без Python)" --notes "Скачайте PhoneAgent-Windows.zip, распакуйте и запустите PhoneAgent.exe. Python не нужен. Дальше приложение обновляется само. build:$($env:GITHUB_SHA.Substring(0,7))"

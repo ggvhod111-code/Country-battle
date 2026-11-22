@@ -13,6 +13,7 @@ from tkinter import messagebox, scrolledtext, ttk
 import agent
 import ollama_setup as osu
 import opencode_gui
+import updater
 
 CFG_PATH = os.path.join(os.path.expanduser("~"), ".phone_agent.json")
 
@@ -211,7 +212,7 @@ class App:
         self.thread = None
         self.panel = None
 
-        root.title("Phone Agent")
+        root.title("Phone Agent (%s)" % updater.version.VERSION)
         root.geometry("800x840")
         root.minsize(680, 640)
         cfg = self.load()
@@ -303,6 +304,7 @@ class App:
         self.stop_btn.pack(side="left", padx=8)
         self.status = ttk.Label(bf, text="Готов")
         self.status.pack(side="left", padx=8)
+        ttk.Button(bf, text="Обновления", command=self.check_update).pack(side="right", padx=6)
         ttk.Button(bf, text="opencode (кодинг-агент)", command=lambda: opencode_gui.OpenCodeWindow(root)).pack(
             side="right")
 
@@ -314,6 +316,36 @@ class App:
         self.on_mode(first=True)
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.poll()
+        if updater.frozen():
+            self.check_update(silent=True)
+
+    # ---------- обновления
+    def check_update(self, silent=False):
+        def work():
+            try:
+                self.q.put(("update", updater.check(), silent))
+            except Exception as e:  # noqa: BLE001
+                if not silent:
+                    self.q.put(("log", "Не удалось проверить обновления: %s" % e))
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_update(self, info, silent):
+        if not info:
+            if not silent:
+                messagebox.showinfo("Phone Agent", "У вас последняя версия." if updater.frozen() else
+                                    "Обновление работает только в собранном PhoneAgent.exe.")
+            return
+        if not messagebox.askyesno("Phone Agent", "Доступна новая версия. Обновить сейчас? Приложение перезапустится."):
+            return
+        self.status.config(text="Обновляю…")
+
+        def work():
+            try:
+                updater.apply(info[1], lambda t: self.q.put(("log", t)))
+                self.q.put(("restart",))
+            except Exception as e:  # noqa: BLE001
+                self.q.put(("log", "Обновление не удалось: %s" % e))
+        threading.Thread(target=work, daemon=True).start()
 
     # ---------- провайдеры
     def stash(self):
@@ -517,6 +549,13 @@ class App:
                         self.append("Моделей: %d. Выберите в списке «Модель»." % len(item[1]))
                     elif item[1] is not None:
                         self.append("Подходящих моделей не найдено.")
+                elif kind == "update":
+                    self.on_update(item[1], item[2])
+                elif kind == "restart":
+                    self.stop_ev.set()
+                    self.save()
+                    self.root.destroy()
+                    return
                 elif kind == "done":
                     self.finish()
         except queue.Empty:
