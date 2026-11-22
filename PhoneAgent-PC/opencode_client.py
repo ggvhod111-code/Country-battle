@@ -64,24 +64,50 @@ def _candidates():
                 yield os.path.join(d, n)
 
 
+def check_exe(path):
+    """None, если файл можно запускать; иначе причина (строка)."""
+    if os.name != "nt":
+        return None
+    low = path.lower()
+    if low.endswith((".cmd", ".bat")):
+        return None
+    if not low.endswith(".exe"):
+        return "это не .exe (нужен opencode.exe или opencode.cmd)"
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(4096)
+    except OSError as e:
+        return "файл не читается: %s" % e
+    if head[:2] != b"MZ":
+        return "файл повреждён (это не программа Windows)"
+    off = int.from_bytes(head[0x3C:0x40], "little") if len(head) > 0x40 else 0
+    if off and off + 6 <= len(head):
+        mach = int.from_bytes(head[off + 4:off + 6], "little")
+        import platform
+        want = {"AMD64": 0x8664, "ARM64": 0xAA64, "x86": 0x14C}.get(platform.machine())
+        if want and mach != want and not (platform.machine() == "ARM64" and mach in (0x8664, 0x14C)):
+            return "файл собран для другой архитектуры процессора"
+    return None
+
+
 def find_exe():
     """Путь к opencode: выбранный вручную, своя папка приложения, типичные места установки, PATH."""
     try:
         with open(_saved_path_file(), encoding="utf-8") as fh:
             saved = fh.read().strip()
-        if os.path.isfile(saved):
+        if os.path.isfile(saved) and not check_exe(saved):
             return saved
     except OSError:
         pass
     name = "opencode.exe" if os.name == "nt" else "opencode"
     for root, _, files in os.walk(app_dir()):  # архив мог распаковаться во вложенную папку
-        if name in files:
+        if name in files and not check_exe(os.path.join(root, name)):
             return os.path.join(root, name)
     found = shutil.which("opencode")
-    if found:
+    if found and not check_exe(found):
         return found
     for c in _candidates():
-        if os.path.isfile(c):
+        if os.path.isfile(c) and not check_exe(c):
             return c
     return None
 
@@ -152,10 +178,17 @@ class Server:
 
     def start(self, timeout=60):
         env = dict(os.environ, OPENCODE_SERVER_PASSWORD=self.password)
-        self.proc = subprocess.Popen(
-            [self.exe, "serve", "--hostname", "127.0.0.1", "--port", str(self.port)],
-            cwd=self.cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, **NOWIN)
+        cmd = [self.exe, "serve", "--hostname", "127.0.0.1", "--port", str(self.port)]
+        if os.name == "nt" and self.exe.lower().endswith((".cmd", ".bat")):
+            cmd = ["cmd", "/c"] + cmd
+        why = check_exe(self.exe)
+        if why:
+            raise OCError("%s: %s" % (self.exe, why))
+        try:
+            self.proc = subprocess.Popen(cmd, cwd=self.cwd, env=env, stdin=subprocess.DEVNULL,
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **NOWIN)
+        except OSError as e:
+            raise OCError("Не удалось запустить %s: %s" % (self.exe, e))
         end = time.time() + timeout
         while time.time() < end:
             if self.proc.poll() is not None:
@@ -168,7 +201,9 @@ class Server:
         raise OCError("opencode не ответил за %d с." % timeout)
 
     def stop(self):
-        if self.proc and self.proc.poll() is None:
+        if self.proc and self.proc.poll() is None and os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, **NOWIN)
+        elif self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:
                 self.proc.wait(5)

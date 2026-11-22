@@ -136,6 +136,10 @@ class OpenCodeWindow(tk.Toplevel):
         path = filedialog.askopenfilename(parent=self, title="Выберите opencode.exe",
                                           filetypes=[("opencode", "*.exe *.cmd *.bat"), ("Все файлы", "*.*")])
         if path:
+            why = oc.check_exe(path)
+            if why:
+                messagebox.showerror("opencode", "%s\n\n%s" % (path, why), parent=self)
+                return
             oc.set_exe(path)
             self.refresh()
 
