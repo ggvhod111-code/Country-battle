@@ -378,8 +378,15 @@ class Renderer:
         t, p = ev.get("type"), ev.get("properties", {})
         if p.get("sessionID") not in (None, self.sid):
             return
-        if t == "session.status" and p.get("status", {}).get("type") == "busy":
-            self.last_err = None
+        if t == "session.status":
+            st = p.get("status", {})
+            if st.get("type") == "busy":
+                self.last_err = None
+            elif st.get("type") == "retry":
+                key = ("retry", st.get("attempt"))
+                if key not in self.shown_tools:
+                    self.shown_tools.add(key)
+                    self.say("⏳ Модель не ответила, повтор №%s: %s" % (st.get("attempt"), st.get("message", "")))
         if t == "message.updated":
             info = p.get("info", {})
             self.roles[info.get("id")] = info.get("role")

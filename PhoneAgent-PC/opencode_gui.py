@@ -275,7 +275,7 @@ class OpenCodeWindow(tk.Toplevel):
                                 parent=self)
             return
         self.entry.delete("1.0", "end")
-        self.append("Вы: " + text)
+        self.append("Вы: " + text + "\n⏳ Жду ответ модели… (если долго — нажмите «Стоп» и выберите другую модель)")
         self.busy = True
         self.send_btn.config(state="disabled")
         self.stop_btn.config(state="normal")
