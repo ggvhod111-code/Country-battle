@@ -129,7 +129,7 @@ class OpenCodeWindow(tk.Toplevel):
             self.status.config(text="opencode не установлен. Нажмите «Установить opencode»: скачается с GitHub "
                                     "(официальная сборка, Python и Node не нужны).")
         self.inst.config(state="disabled" if exe else "normal")
-        self.conn.config(state="disabled" if self.server else ("normal" if exe else "disabled"))
+        self.conn.config(state="disabled" if self.server else "normal")
 
     def browse(self):
         d = filedialog.askdirectory(parent=self, initialdir=self.cwd.get() or None)
@@ -161,7 +161,11 @@ class OpenCodeWindow(tk.Toplevel):
     def connect(self):
         exe = oc.find_exe()
         cwd = self.cwd.get().strip()
-        if not exe or not cwd:
+        if not exe:
+            messagebox.showinfo("opencode", "opencode не найден. Нажмите «Установить opencode».", parent=self)
+            return
+        if not cwd:
+            messagebox.showinfo("opencode", "Укажите рабочую папку.", parent=self)
             return
         os.makedirs(cwd, exist_ok=True)
         self.conn.config(state="disabled")

@@ -38,9 +38,9 @@ def config_dir():
 # ---------------------------------------------------------------- установка
 def find_exe():
     name = "opencode.exe" if os.name == "nt" else "opencode"
-    own = os.path.join(app_dir(), name)
-    if os.path.isfile(own):
-        return own
+    for root, _, files in os.walk(app_dir()):  # архив мог распаковаться во вложенную папку
+        if name in files:
+            return os.path.join(root, name)
     return shutil.which("opencode")
 
 
@@ -81,13 +81,8 @@ def install(emit):
     os.makedirs(dest, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         z.extractall(dest)
-    exe = os.path.join(dest, "opencode.exe")
-    if not os.path.isfile(exe):  # вдруг положили во вложенную папку
-        for root, _, files in os.walk(dest):
-            if "opencode.exe" in files:
-                exe = os.path.join(root, "opencode.exe")
-                break
-    if not os.path.isfile(exe):
+    exe = find_exe()
+    if not exe:
         raise OCError("В архиве нет opencode.exe.")
     emit("Установлено: %s" % exe)
     return exe
