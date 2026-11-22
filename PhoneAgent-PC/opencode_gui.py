@@ -2,6 +2,7 @@
 import os
 import queue
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -283,8 +284,29 @@ class OpenCodeWindow(tk.Toplevel):
         self.thread(lambda: srv.prompt(sid, text, p[0], model))
 
     def stop(self):
-        if self.server and self.sid:
-            self.thread(lambda: self.server.abort(self.sid))
+        srv, sid = self.server, self.sid
+        if not srv or not sid:
+            return
+        self.stop_btn.config(state="disabled")
+        self.append("⏹ Останавливаю…")
+
+        def work():
+            try:
+                srv.abort(sid)
+            except Exception:  # noqa: BLE001
+                pass
+            for _ in range(10):  # ждём до 5 с, пока opencode перестанет работать
+                try:
+                    if sid not in srv.request("GET", "/session/status", timeout=3):
+                        self.q.put(("log", "Остановлено."))
+                        self.q.put(("idle",))
+                        return
+                except Exception:  # noqa: BLE001
+                    break
+                time.sleep(0.5)
+            srv.stop()  # не остановился сам: завершаем процесс принудительно
+            self.q.put(("killed",))
+        self.thread(work)
 
     def ask_permission(self, p):
         if self.auto.get():
@@ -310,6 +332,12 @@ class OpenCodeWindow(tk.Toplevel):
                     self.send_btn.config(state="normal")
                     self.stop_btn.config(state="disabled")
                     self.refresh()
+                elif k == "killed":
+                    self.server = None
+                    self.sid = None
+                    self.append("Агент не остановился сам, opencode завершён принудительно. "
+                                "Нажмите «Подключиться», чтобы продолжить.")
+                    self.q.put(("idle",))
                 elif k == "dbfix":
                     self.fix_db()
                 elif k == "refresh":
