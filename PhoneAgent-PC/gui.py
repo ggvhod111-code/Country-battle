@@ -11,6 +11,7 @@ import webbrowser
 from tkinter import messagebox, scrolledtext, ttk
 
 import agent
+import ollama_setup as osu
 
 CFG_PATH = os.path.join(os.path.expanduser("~"), ".phone_agent.json")
 
@@ -76,6 +77,131 @@ class Panel(tk.Toplevel):
         self.lbl.config(text="Останавливаю…")
 
 
+class OllamaDialog(tk.Toplevel):
+    """Установка Ollama, проверка железа, скачивание моделей (по мотивам официального промпта Ollama)."""
+
+    def __init__(self, root, app):
+        super().__init__(root)
+        self.app = app
+        self.q = queue.Queue()
+        self.busy = False
+        self.title("Настройка Ollama")
+        self.geometry("640x560")
+        self.transient(root)
+        f = ttk.Frame(self, padding=12)
+        f.pack(fill="both", expand=True)
+        f.columnconfigure(0, weight=1)
+        self.st = ttk.Label(f, text="", wraplength=600, justify="left")
+        self.st.grid(row=0, column=0, columnspan=2, sticky="w")
+        self.hw = ttk.Label(f, text="Проверяю компьютер…", wraplength=600, justify="left")
+        self.hw.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.rec = ttk.Label(f, text="", wraplength=600, justify="left", foreground="#145a14")
+        self.rec.grid(row=2, column=0, columnspan=2, sticky="w", pady=(6, 8))
+        self.inst_btn = ttk.Button(f, text="1. Установить Ollama", command=self.install)
+        self.inst_btn.grid(row=3, column=0, sticky="w")
+        ttk.Label(f, text="Модель").grid(row=4, column=0, sticky="w", pady=(10, 0))
+        self.model = tk.StringVar(value=app.model.get() or "qwen3:8b")
+        ttk.Combobox(f, textvariable=self.model, values=osu.CLOUD_MODELS + osu.LOCAL_MODELS).grid(
+            row=5, column=0, sticky="ew", pady=2)
+        self.pull_btn = ttk.Button(f, text="2. Скачать / подключить модель", command=self.pull)
+        self.pull_btn.grid(row=5, column=1, padx=6)
+        ttk.Label(f, text="Имя с :cloud — облачная модель (скачивания нет, нужен вход в аккаунт Ollama).",
+                  foreground="#555", wraplength=600).grid(row=6, column=0, columnspan=2, sticky="w")
+        rb = ttk.Frame(f)
+        rb.grid(row=7, column=0, columnspan=2, sticky="w", pady=8)
+        ttk.Button(rb, text="Войти в аккаунт Ollama (для :cloud)", command=self.signin).pack(side="left")
+        ttk.Button(rb, text="Ключ API", command=lambda: webbrowser.open(osu.KEYS_URL)).pack(side="left", padx=6)
+        ttk.Button(rb, text="Документация", command=lambda: webbrowser.open("https://docs.ollama.com")).pack(
+            side="left")
+        ttk.Button(rb, text="Использовать в приложении", command=self.use).pack(side="left", padx=6)
+        self.log = scrolledtext.ScrolledText(f, height=10, wrap="word", state="disabled")
+        self.log.grid(row=8, column=0, columnspan=2, sticky="nsew")
+        f.rowconfigure(8, weight=1)
+        self.refresh()
+        threading.Thread(target=self.probe, daemon=True).start()
+        self.after(100, self.poll)
+
+    def say(self, t):
+        self.log.config(state="normal")
+        self.log.insert("end", t + "\n")
+        self.log.see("end")
+        self.log.config(state="disabled")
+
+    def refresh(self):
+        exe = osu.find_ollama()
+        self.st.config(text=("Ollama установлена: %s" % exe) if exe else "Ollama не установлена.")
+        self.inst_btn.config(state="disabled" if exe else "normal")
+
+    def probe(self):
+        hw = osu.hardware()
+        text, kind = osu.recommend(hw)
+        self.q.put(("hw", osu.describe(hw), text, kind))
+
+    def run(self, cmd, after=None):
+        if self.busy:
+            return
+        self.busy = True
+
+        def work():
+            code = osu.stream(cmd, lambda t: self.q.put(("log", t)))
+            self.q.put(("done", code, after))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def install(self):
+        if not messagebox.askyesno("Ollama", "Скачать и установить Ollama с ollama.com? Это официальный установщик.",
+                                   parent=self):
+            return
+        self.say("Устанавливаю Ollama…")
+        self.run(osu.install_cmd(), "install")
+
+    def pull(self):
+        exe = osu.find_ollama()
+        m = self.model.get().strip()
+        if not exe:
+            messagebox.showinfo("Ollama", "Сначала установите Ollama (кнопка 1).", parent=self)
+            return
+        if not m:
+            return
+        self.say("ollama pull %s" % m)
+        self.run([exe, "pull", m], "pull")
+
+    def signin(self):
+        exe = osu.find_ollama()
+        if not exe:
+            messagebox.showinfo("Ollama", "Сначала установите Ollama.", parent=self)
+            return
+        osu.signin(exe)
+        self.say("Откроется окно входа: подтвердите вход в браузере. Для облачных моделей нужны кредиты или платный план.")
+
+    def use(self):
+        self.app.bases["ollama"] = ""
+        self.app.models["ollama"] = self.model.get().strip()
+        self.app.apply_provider("ollama")
+        self.app.append("Выбран провайдер Ollama, модель %s." % self.model.get().strip())
+        self.destroy()
+
+    def poll(self):
+        try:
+            while True:
+                it = self.q.get_nowait()
+                if it[0] == "log":
+                    self.say(it[1])
+                elif it[0] == "hw":
+                    self.hw.config(text=it[1])
+                    self.rec.config(text=it[2])
+                    if it[3] == "cloud":
+                        self.model.set(osu.CLOUD_MODELS[0])
+                elif it[0] == "done":
+                    self.busy = False
+                    self.say("Готово." if it[1] == 0 else "Завершилось с ошибкой (код %s)." % it[1])
+                    self.refresh()
+        except queue.Empty:
+            pass
+        if self.winfo_exists():
+            self.after(100, self.poll)
+
+
 class App:
     def __init__(self, root):
         self.root = root
@@ -119,8 +245,11 @@ class App:
                           values=[v["name"] for v in agent.PROVIDERS.values()])
         pb.grid(row=0, column=1, sticky="ew", padx=6)
         pb.bind("<<ComboboxSelected>>", lambda e: self.on_provider())
-        self.keylink_btn = ttk.Button(f, text="Получить ключ", command=self.open_keyurl)
-        self.keylink_btn.grid(row=0, column=2, sticky="w")
+        bx = ttk.Frame(f)
+        bx.grid(row=0, column=2, sticky="w")
+        self.keylink_btn = ttk.Button(bx, text="Получить ключ", command=self.open_keyurl)
+        self.keylink_btn.pack(side="left")
+        self.ollama_btn = ttk.Button(bx, text="Настроить Ollama", command=self.open_ollama)
         self.note = ttk.Label(f, text="", wraplength=730, foreground="#555")
         self.note.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 6))
 
@@ -200,6 +329,10 @@ class App:
         self.model_box.config(values=[])
         self.note.config(text=p["note"])
         self.key_entry.config(state="disabled" if pid == "ollama" else "normal")
+        if pid == "ollama":
+            self.ollama_btn.pack(side="left", padx=(6, 0))
+        else:
+            self.ollama_btn.pack_forget()
         self.keylink_btn.config(state="normal" if p["keyurl"] else "disabled")
 
     def on_provider(self):
@@ -210,6 +343,9 @@ class App:
         url = agent.PROVIDERS[self.cur]["keyurl"]
         if url:
             webbrowser.open(url)
+
+    def open_ollama(self):
+        OllamaDialog(self.root, self)
 
     def needs_key(self):
         return self.cur not in ("ollama", "custom")

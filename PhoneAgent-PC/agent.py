@@ -84,8 +84,13 @@ PROVIDERS = {
     "ollama": dict(
         name="Ollama (локально)", base="http://localhost:11434/v1", env="",
         model="qwen3", keyurl="https://ollama.com/download",
-        note="Работает на вашем ПК, бесплатно и без ключа. Установите Ollama и скачайте модель с поддержкой "
-             "инструментов (ollama pull ...). Для режима ПК нужна модель со зрением."),
+        note="Работает на вашем ПК, бесплатно и без ключа. Кнопка «Настроить Ollama» установит программу и скачает "
+             "модель с поддержкой инструментов. Для режима ПК нужна модель со зрением."),
+    "ollama_cloud": dict(
+        name="Ollama (облако)", base="https://ollama.com/v1", env="OLLAMA_API_KEY",
+        model="gemma4", keyurl="https://ollama.com/settings/keys",
+        note="Модели работают на серверах Ollama: быстро на любом ПК, скачивать не нужно. Нужен API-ключ "
+             "(ollama.com/settings/keys) и кредиты или платный план. Список — кнопкой «Список моделей»."),
     "custom": dict(
         name="Свой сервер (OpenAI-совместимый)", base="", env="CUSTOM_API_KEY",
         model="", keyurl="",
