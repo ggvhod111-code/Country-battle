@@ -12,6 +12,7 @@ from tkinter import messagebox, scrolledtext, ttk
 
 import agent
 import ollama_setup as osu
+import opencode_gui
 
 CFG_PATH = os.path.join(os.path.expanduser("~"), ".phone_agent.json")
 
@@ -302,6 +303,8 @@ class App:
         self.stop_btn.pack(side="left", padx=8)
         self.status = ttk.Label(bf, text="Готов")
         self.status.pack(side="left", padx=8)
+        ttk.Button(bf, text="opencode (кодинг-агент)", command=lambda: opencode_gui.OpenCodeWindow(root)).pack(
+            side="right")
 
         self.log = scrolledtext.ScrolledText(f, height=12, wrap="word", state="disabled")
         self.log.grid(row=12, column=0, columnspan=3, sticky="nsew", pady=(6, 0))
