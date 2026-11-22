@@ -216,21 +216,35 @@ class Server:
         why = check_exe(self.exe)
         if why:
             raise OCError("%s: %s" % (self.exe, why))
+        os.makedirs(os.path.dirname(self.logfile()), exist_ok=True)
+        self.log = open(self.logfile(), "wb")
         try:
             self.proc = subprocess.Popen(cmd, cwd=self.cwd, env=env, stdin=subprocess.DEVNULL,
-                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **NOWIN)
+                                         stdout=self.log, stderr=subprocess.STDOUT, **NOWIN)
         except OSError as e:
             raise OCError("Не удалось запустить %s: %s" % (self.exe, e))
         end = time.time() + timeout
         while time.time() < end:
             if self.proc.poll() is not None:
-                raise OCError("opencode сразу завершился (код %s)." % self.proc.returncode)
+                raise OCError("opencode сразу завершился (код %s).\n%s\nПолный вывод: %s" % (
+                    self.proc.returncode, self.tail() or "(вывода нет)", self.logfile()))
             try:
                 if self.request("GET", "/global/health", timeout=2).get("healthy"):
                     return
             except Exception:  # noqa: BLE001
                 time.sleep(0.4)
         raise OCError("opencode не ответил за %d с." % timeout)
+
+    def logfile(self):
+        return os.path.join(os.path.dirname(app_dir()), "opencode-serve.log")
+
+    def tail(self, n=1500):
+        try:
+            self.log.flush()
+            with open(self.logfile(), "rb") as fh:
+                return fh.read()[-n:].decode("utf-8", "replace").strip()
+        except OSError:
+            return ""
 
     def stop(self):
         if self.proc and self.proc.poll() is None and os.name == "nt":
