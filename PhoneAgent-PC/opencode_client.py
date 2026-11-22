@@ -23,6 +23,34 @@ class OCError(Exception):
     pass
 
 
+class DBError(OCError):
+    """База данных opencode в неисправном состоянии."""
+
+
+def db_files():
+    """Файлы базы opencode (основной и служебные -wal/-shm), которые существуют."""
+    home = os.path.expanduser("~")
+    dirs = [os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share"), "opencode"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "opencode")]
+    out = []
+    for d in dirs:
+        for n in ("opencode.db", "opencode.db-wal", "opencode.db-shm"):
+            if d and os.path.isfile(os.path.join(d, n)):
+                out.append(os.path.join(d, n))
+    return out
+
+
+def reset_db():
+    """Переименовать базу в резервную копию (opencode создаст новую). Вернуть список новых путей."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    moved = []
+    for f in db_files():
+        dst = "%s.bak-%s" % (f, stamp)
+        os.replace(f, dst)
+        moved.append(dst)
+    return moved
+
+
 def app_dir():
     base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".local", "share")
     return os.path.join(base, "PhoneAgent", "opencode")
@@ -226,6 +254,8 @@ class Server:
         end = time.time() + timeout
         while time.time() < end:
             if self.proc.poll() is not None:
+                if "has no session table" in self.tail():
+                    raise DBError("База данных opencode неисправна (нет таблицы сессий).")
                 raise OCError("opencode сразу завершился (код %s).\n%s\nПолный вывод: %s" % (
                     self.proc.returncode, self.tail() or "(вывода нет)", self.logfile()))
             try:

@@ -185,13 +185,35 @@ class OpenCodeWindow(tk.Toplevel):
 
         def work():
             srv = oc.Server(exe, cwd)
-            srv.start()
+            try:
+                srv.start()
+            except oc.DBError:
+                self.q.put(("dbfix",))
+                return
             self.server = srv
             items, con = srv.providers()
             self.sid = srv.new_session()
             threading.Thread(target=self.listen, args=(srv, self.sid), daemon=True).start()
             self.q.put(("ready", items, con))
         self.thread(work)
+
+    def fix_db(self):
+        files = oc.db_files()
+        if files and messagebox.askyesno(
+                "opencode", "База данных opencode неисправна (после прерванного запуска или от другой версии).\n\n"
+                "Переименовать её в резервную копию (.bak, ничего не удаляется) и начать с чистой? "
+                "Старые чаты opencode в этой базе перестанут быть видны.", parent=self):
+            try:
+                moved = oc.reset_db()
+            except OSError as e:
+                self.append("Не удалось переименовать базу: %s" % e)
+                self.refresh()
+                return
+            self.append("Старая база сохранена: %s\nПробую подключиться заново…" % moved[0])
+            self.connect()
+            return
+        self.append("База данных opencode неисправна. Файлы базы: %s" % (", ".join(files) or "не найдены"))
+        self.refresh()
 
     def listen(self, srv, sid):
         r = oc.Renderer(sid, self.say, lambda p: self.q.put(("perm", p)), lambda: self.q.put(("idle",)))
@@ -288,6 +310,8 @@ class OpenCodeWindow(tk.Toplevel):
                     self.send_btn.config(state="normal")
                     self.stop_btn.config(state="disabled")
                     self.refresh()
+                elif k == "dbfix":
+                    self.fix_db()
                 elif k == "refresh":
                     self.refresh()
                 elif k == "ready":
