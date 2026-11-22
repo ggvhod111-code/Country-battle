@@ -53,4 +53,7 @@ def apply(url, progress=lambda s: None):
         fh.write('@echo off\r\nfor /l %%i in (1,1,30) do (\r\n  move /y "{new}" "{exe}" >nul 2>nul && goto ok\r\n'
                  '  ping -n 2 127.0.0.1 >nul\r\n)\r\nexit /b 1\r\n:ok\r\nstart "" "{exe}"\r\n'
                  '(goto) 2>nul & del "%~f0"\r\n'.format(new=new, exe=exe))
-    subprocess.Popen(["cmd", "/c", bat], close_fds=True, **NOWIN)
+    # новый экземпляр не должен наследовать временную папку старого (_MEI...), иначе: «Failed to load Python DLL»
+    env = {k: v for k, v in os.environ.items() if not k.startswith("_PYI") and k != "_MEIPASS2"}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    subprocess.Popen(["cmd", "/c", bat], close_fds=True, env=env, **NOWIN)
