@@ -36,12 +36,54 @@ def config_dir():
 
 
 # ---------------------------------------------------------------- установка
+def _saved_path_file():
+    return os.path.join(os.path.dirname(app_dir()), "opencode_path.txt")
+
+
+def set_exe(path):
+    os.makedirs(os.path.dirname(_saved_path_file()), exist_ok=True)
+    with open(_saved_path_file(), "w", encoding="utf-8") as fh:
+        fh.write(path)
+
+
+def _candidates():
+    home = os.path.expanduser("~")
+    local = os.environ.get("LOCALAPPDATA", "")
+    appdata = os.environ.get("APPDATA", "")
+    names = ("opencode.exe", "opencode.cmd", "opencode")
+    dirs = [os.path.join(home, ".opencode", "bin"), os.path.join(home, ".local", "bin"),
+            os.path.join(home, "scoop", "shims"), os.path.join(appdata, "npm"),
+            os.path.join(local, "Programs", "opencode"), os.path.join(local, "Programs", "OpenCode"),
+            os.path.join(local, "OpenCode"), os.path.join(local, "opencode"),
+            os.path.join(os.environ.get("ProgramFiles", ""), "opencode"),
+            os.path.join(os.environ.get("ProgramFiles", ""), "OpenCode"),
+            os.path.join(os.environ.get("ChocolateyInstall", ""), "bin")]
+    for d in dirs:
+        if d and os.path.isdir(d):
+            for n in names:
+                yield os.path.join(d, n)
+
+
 def find_exe():
+    """Путь к opencode: выбранный вручную, своя папка приложения, типичные места установки, PATH."""
+    try:
+        with open(_saved_path_file(), encoding="utf-8") as fh:
+            saved = fh.read().strip()
+        if os.path.isfile(saved):
+            return saved
+    except OSError:
+        pass
     name = "opencode.exe" if os.name == "nt" else "opencode"
     for root, _, files in os.walk(app_dir()):  # архив мог распаковаться во вложенную папку
         if name in files:
             return os.path.join(root, name)
-    return shutil.which("opencode")
+    found = shutil.which("opencode")
+    if found:
+        return found
+    for c in _candidates():
+        if os.path.isfile(c):
+            return c
+    return None
 
 
 def _get(url, accept="application/json"):

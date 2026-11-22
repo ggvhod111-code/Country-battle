@@ -60,6 +60,7 @@ class OpenCodeWindow(tk.Toplevel):
         bar.grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 6))
         self.inst = ttk.Button(bar, text="Установить opencode", command=self.install)
         self.inst.pack(side="left")
+        ttk.Button(bar, text="Указать файл…", command=self.pick_exe).pack(side="left", padx=(6, 0))
         self.conn = ttk.Button(bar, text="Подключиться", command=self.connect)
         self.conn.pack(side="left", padx=6)
         for text, cmd in (("Правила", self.rules), ("Навыки", self.skills), ("MCP", self.mcp)):
@@ -126,10 +127,17 @@ class OpenCodeWindow(tk.Toplevel):
         elif exe:
             self.status.config(text="opencode установлен (%s). Нажмите «Подключиться»." % exe)
         else:
-            self.status.config(text="opencode не установлен. Нажмите «Установить opencode»: скачается с GitHub "
-                                    "(официальная сборка, Python и Node не нужны).")
+            self.status.config(text="opencode не найден. Нажмите «Установить opencode» (скачается с GitHub, "
+                                    "Python и Node не нужны) или «Указать файл…», если он уже стоит.")
         self.inst.config(state="disabled" if exe else "normal")
         self.conn.config(state="disabled" if self.server else "normal")
+
+    def pick_exe(self):
+        path = filedialog.askopenfilename(parent=self, title="Выберите opencode.exe",
+                                          filetypes=[("opencode", "*.exe *.cmd *.bat"), ("Все файлы", "*.*")])
+        if path:
+            oc.set_exe(path)
+            self.refresh()
 
     def browse(self):
         d = filedialog.askdirectory(parent=self, initialdir=self.cwd.get() or None)
@@ -162,7 +170,7 @@ class OpenCodeWindow(tk.Toplevel):
         exe = oc.find_exe()
         cwd = self.cwd.get().strip()
         if not exe:
-            messagebox.showinfo("opencode", "opencode не найден. Нажмите «Установить opencode».", parent=self)
+            messagebox.showinfo("opencode", "opencode не найден. Нажмите «Установить opencode» или «Указать файл…».", parent=self)
             return
         if not cwd:
             messagebox.showinfo("opencode", "Укажите рабочую папку.", parent=self)
