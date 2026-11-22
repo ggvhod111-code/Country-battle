@@ -341,7 +341,7 @@ class App:
 
         def work():
             try:
-                updater.apply(info[1], lambda t: self.q.put(("log", t)))
+                updater.apply(info[1], info[2], lambda t: self.q.put(("log", t)))
                 self.q.put(("restart",))
             except Exception as e:  # noqa: BLE001
                 self.q.put(("log", "Обновление не удалось: %s" % e))

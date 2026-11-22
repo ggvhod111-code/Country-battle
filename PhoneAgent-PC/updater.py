@@ -26,10 +26,10 @@ def check():
     asset = next((a for a in rel.get("assets", []) if a["name"] == "PhoneAgent.exe"), None)
     if not m or not asset or m.group(1) == version.VERSION:
         return None
-    return m.group(1), asset["browser_download_url"]
+    return m.group(1), asset["browser_download_url"], asset.get("size", 0)
 
 
-def apply(url, progress=lambda s: None):
+def apply(url, size=0, progress=lambda s: None):
     """Скачать новый exe рядом с текущим и запустить замену + перезапуск. Потом приложение должно закрыться."""
     exe = sys.executable
     new = exe + ".new"
@@ -45,9 +45,9 @@ def apply(url, progress=lambda s: None):
             done += len(chunk)
             if total:
                 progress("Скачано %d%%" % (done * 100 // total))
-    if os.path.getsize(new) < 1_000_000:
+    if os.path.getsize(new) < 1_000_000 or (size and os.path.getsize(new) != size):
         os.remove(new)
-        raise RuntimeError("Скачанный файл слишком маленький, обновление отменено.")
+        raise RuntimeError("Файл скачался не полностью, обновление отменено. Попробуйте ещё раз.")
     bat = exe + ".update.bat"
     with open(bat, "w", encoding="utf-8") as fh:
         fh.write('@echo off\r\nfor /l %%i in (1,1,30) do (\r\n  move /y "{new}" "{exe}" >nul 2>nul && goto ok\r\n'
