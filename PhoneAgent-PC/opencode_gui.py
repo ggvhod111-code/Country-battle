@@ -127,9 +127,9 @@ class OpenCodeWindow(tk.Toplevel):
         elif exe:
             self.status.config(text="opencode установлен (%s). Нажмите «Подключиться»." % exe)
         else:
-            self.status.config(text="opencode не найден. Нажмите «Установить opencode» (скачается с GitHub, "
+            self.status.config(text="opencode не найден. Нажмите «Установить opencode» (скачается из реестра npm, "
                                     "Python и Node не нужны) или «Указать файл…», если он уже стоит.")
-        self.inst.config(state="disabled" if exe else "normal")
+        self.inst.config(text="Переустановить opencode" if exe else "Установить opencode")
         self.conn.config(state="disabled" if self.server else "normal")
 
     def pick_exe(self):
@@ -159,7 +159,7 @@ class OpenCodeWindow(tk.Toplevel):
 
     # ---------- установка и запуск
     def install(self):
-        if not messagebox.askyesno("opencode", "Скачать opencode с GitHub (около 50–150 МБ) и положить в папку "
+        if not messagebox.askyesno("opencode", "Скачать opencode (около 80 МБ, с проверкой целостности) и положить в папку "
                                    "приложения?", parent=self):
             return
         self.inst.config(state="disabled")

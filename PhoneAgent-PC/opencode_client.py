@@ -4,7 +4,6 @@
 по его HTTP API - так же, как это делает официальное десктоп-приложение.
 """
 import base64
-import io
 import json
 import os
 import re
@@ -18,7 +17,6 @@ import urllib.request
 import zipfile
 
 NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
-REPOS = ("anomalyco/opencode", "sst/opencode")
 
 
 class OCError(Exception):
@@ -78,6 +76,11 @@ def check_exe(path):
             head = fh.read(4096)
     except OSError as e:
         return "файл не читается: %s" % e
+    try:
+        if os.path.getsize(path) < 50 * 2**20:  # настоящий opencode.exe больше 100 МБ: меньше - обрезанный файл
+            return "файл слишком маленький: скачался не полностью. Нажмите «Установить opencode» ещё раз"
+    except OSError:
+        pass
     if head[:2] != b"MZ":
         return "файл повреждён (это не программа Windows)"
     off = int.from_bytes(head[0x3C:0x40], "little") if len(head) > 0x40 else 0
@@ -118,40 +121,69 @@ def _get(url, accept="application/json"):
         return r.read()
 
 
-def pick_asset(assets):
-    """Нужный zip для Windows x64 (обычный, не baseline) или None."""
-    best = None
-    for a in assets:
-        n = a.get("name", "").lower()
-        if n.endswith(".zip") and "windows" in n and ("x64" in n or "amd64" in n) and "baseline" not in n:
-            best = best or a
-    return best
+def npm_package():
+    import platform
+    return "opencode-windows-arm64" if platform.machine() == "ARM64" else "opencode-windows-x64"
 
 
-def install(emit):
-    """Скачать opencode с GitHub Releases в папку приложения. Вернуть путь к exe."""
-    if os.name != "nt":
+def install(emit, pkg=None, dest=None):
+    """Скачать opencode из реестра npm (с проверкой контрольной суммы) в папку приложения. Вернуть путь к exe."""
+    import hashlib
+    import tarfile
+    import tempfile
+    if os.name != "nt" and pkg is None:
         raise OCError("Автоустановка есть только для Windows. На других ОС поставьте opencode с opencode.ai.")
-    last = None
-    for repo in REPOS:
-        try:
-            rel = json.loads(_get("https://api.github.com/repos/%s/releases/latest" % repo))
-            asset = pick_asset(rel.get("assets", []))
-            if asset:
-                break
-        except Exception as e:  # noqa: BLE001
-            last = e
-    else:
-        raise OCError("Не нашёл сборку opencode для Windows на GitHub (%s)." % (last or "нет подходящего файла"))
-    emit("Скачиваю %s (%s)…" % (asset["name"], rel.get("tag_name", "")))
-    data = _get(asset["browser_download_url"], "application/octet-stream")
-    dest = app_dir()
+    pkg = pkg or npm_package()
+    dest = dest or app_dir()
+    meta = json.loads(_get("https://registry.npmjs.org/%s/latest" % pkg))
+    url, integrity = meta["dist"]["tarball"], meta["dist"].get("integrity", "")
+    if not integrity.startswith("sha512-"):
+        raise OCError("Реестр не дал контрольную сумму, установка отменена.")
+    emit("Скачиваю %s %s (около 80 МБ)…" % (pkg, meta.get("version", "")))
     os.makedirs(dest, exist_ok=True)
-    with zipfile.ZipFile(io.BytesIO(data)) as z:
-        z.extractall(dest)
-    exe = find_exe()
-    if not exe:
-        raise OCError("В архиве нет opencode.exe.")
+    fd, tmp = tempfile.mkstemp(suffix=".tgz", dir=dest)
+    os.close(fd)
+    try:
+        h = hashlib.sha512()
+        req = urllib.request.Request(url, headers={"User-Agent": "PhoneAgent"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as out:
+            total = int(r.headers.get("Content-Length") or 0)
+            done = last = 0
+            while True:
+                chunk = r.read(1 << 18)
+                if not chunk:
+                    break
+                out.write(chunk)
+                h.update(chunk)
+                done += len(chunk)
+                if total and done * 10 // total != last:
+                    last = done * 10 // total
+                    emit("Скачано %d%%" % (done * 100 // total))
+            if total and done != total:
+                raise OCError("Файл скачался не полностью (%d из %d байт). Повторите установку." % (done, total))
+        if base64.b64encode(h.digest()).decode() != integrity[len("sha512-"):]:
+            raise OCError("Контрольная сумма не совпала: файл повреждён при скачивании. Повторите установку.")
+        emit("Распаковываю…")
+        name = "opencode.exe"
+        with tarfile.open(tmp, "r:gz") as t:
+            member = next((m for m in t.getmembers() if m.name.endswith("/bin/" + name)), None)
+            if not member:
+                raise OCError("В пакете нет %s." % name)
+            exe = os.path.join(dest, name)
+            part = exe + ".part"
+            with t.extractfile(member) as src, open(part, "wb") as dst:
+                shutil.copyfileobj(src, dst, 1 << 20)
+        if os.path.getsize(part) != member.size:
+            raise OCError("Файл распаковался не полностью.")
+        os.replace(part, exe)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    why = check_exe(exe)
+    if why:
+        raise OCError("%s: %s" % (exe, why))
     emit("Установлено: %s" % exe)
     return exe
 
