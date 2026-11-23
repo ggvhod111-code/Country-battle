@@ -3,7 +3,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import urllib.request
 
 NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}

@@ -231,6 +231,7 @@ class Server:
         self.port = free_port()
         self.password = secrets.token_hex(16)
         self.proc = None
+        self.log = None
 
     @property
     def base(self):
@@ -254,15 +255,18 @@ class Server:
         end = time.time() + timeout
         while time.time() < end:
             if self.proc.poll() is not None:
-                if "has no session table" in self.tail():
+                out = self.tail()
+                self.stop()
+                if "has no session table" in out:
                     raise DBError("База данных opencode неисправна (нет таблицы сессий).")
                 raise OCError("opencode сразу завершился (код %s).\n%s\nПолный вывод: %s" % (
-                    self.proc.returncode, self.tail() or "(вывода нет)", self.logfile()))
+                    self.proc.returncode, out or "(вывода нет)", self.logfile()))
             try:
                 if self.request("GET", "/global/health", timeout=2).get("healthy"):
                     return
             except Exception:  # noqa: BLE001
                 time.sleep(0.4)
+        self.stop()
         raise OCError("opencode не ответил за %d с." % timeout)
 
     def logfile(self):
@@ -270,22 +274,31 @@ class Server:
 
     def tail(self, n=1500):
         try:
-            self.log.flush()
+            if getattr(self, "log", None):
+                self.log.flush()
             with open(self.logfile(), "rb") as fh:
                 return fh.read()[-n:].decode("utf-8", "replace").strip()
         except OSError:
             return ""
 
     def stop(self):
-        if self.proc and self.proc.poll() is None and os.name == "nt":
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, **NOWIN)
-        elif self.proc and self.proc.poll() is None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(5)
-            except Exception:  # noqa: BLE001
-                self.proc.kill()
+        proc = self.proc
         self.proc = None
+        if proc and proc.poll() is None:
+            if os.name == "nt":  # убиваем и дочерние процессы (например, при запуске через .cmd)
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, **NOWIN)
+            else:
+                proc.terminate()
+            try:
+                proc.wait(5)
+            except Exception:  # noqa: BLE001
+                proc.kill()
+        log, self.log = getattr(self, "log", None), None
+        if log:
+            try:
+                log.close()
+            except OSError:
+                pass
 
     def _headers(self):
         tok = base64.b64encode(("opencode:%s" % self.password).encode()).decode()

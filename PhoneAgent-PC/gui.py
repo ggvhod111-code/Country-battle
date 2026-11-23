@@ -3,7 +3,6 @@
 import json
 import os
 import queue
-import sys
 import threading
 import time
 import tkinter as tk
@@ -177,6 +176,7 @@ class OllamaDialog(tk.Toplevel):
         self.say("Откроется окно входа: подтвердите вход в браузере. Для облачных моделей нужны кредиты или платный план.")
 
     def use(self):
+        self.app.stash()  # не потерять введённое для прежнего провайдера
         self.app.bases["ollama"] = ""
         self.app.models["ollama"] = self.model.get().strip()
         self.app.apply_provider("ollama")

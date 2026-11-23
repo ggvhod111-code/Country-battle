@@ -410,7 +410,7 @@ class Desktop:
     def __init__(self):
         try:
             import pyautogui
-            from PIL import Image  # noqa: F401
+            import PIL  # noqa: F401
         except ImportError:
             raise AgentError("Нужны пакеты: pip install pyautogui pillow")
         self.pg = pyautogui
@@ -451,16 +451,29 @@ class Desktop:
         if text.isascii():
             self.pg.write(text, interval=0.02)
             return "текст введён"
+        self.set_clipboard(text)
+        self.pg.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
+        time.sleep(0.4)
+        return "текст вставлен"
+
+    @staticmethod
+    def set_clipboard(text):
+        """Положить текст в буфер обмена. Не через tkinter: агент работает в отдельном потоке, а tkinter не любит потоки."""
+        if os.name == "nt":
+            b64 = base64.b64encode(text.encode("utf-8")).decode()
+            cmd = ("Set-Clipboard -Value ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s')))"
+                   % b64)
+            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], check=True,
+                           capture_output=True, timeout=20, **_NOWIN)
+            return
         import tkinter
         r = tkinter.Tk()
         r.withdraw()
         r.clipboard_clear()
         r.clipboard_append(text)
         r.update()
-        self.pg.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
-        time.sleep(0.4)
+        time.sleep(0.2)
         r.destroy()
-        return "текст вставлен"
 
     def t_key(self, keys):
         self.pg.hotkey(*[k.strip().lower() for k in keys.split("+")])
